@@ -53,12 +53,15 @@ public class WebSocketController {
 
         matchmakingService.registerSession(userId, sessionId);
 
-        logger.info("Usuário {} conectado. SessionId: {}", userId, sessionId);
+        logger.info(">>> [WS_CONNECT] Usuário conectado - userId={}, sessionId={}", userId, sessionId);
     }
 
     @MessageMapping("/join-queue")
     public void joinQueue(Principal principal) {
         Long userId = Long.parseLong(principal.getName());
+        
+        logger.info(">>> [WS_JOIN_QUEUE] Recebida requisição - userId={}, principal.name={}", 
+                    userId, principal.getName());
 
         try {
             matchmakingService.joinQueue(userId);
@@ -72,8 +75,9 @@ public class WebSocketController {
                     "/queue/status",
                     response);
 
-            logger.info("Usuário {} entrou na fila", userId);
+            logger.info(">>> [WS_JOIN_QUEUE] Resposta enviada - userId={}", userId);
         } catch (IllegalStateException e) {
+            logger.error(">>> [WS_JOIN_QUEUE] Erro - userId={}, error={}", userId, e.getMessage());
             sendError(userId, e.getMessage());
         }
     }

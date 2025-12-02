@@ -29,6 +29,9 @@ public class MatchmakingService {
     private final Map<Long, Long> userInCall = new ConcurrentHashMap<>();
     
     private final Map<Long, String> userSessions = new ConcurrentHashMap<>();
+    
+    // Lock para sincronizar o método tryMatch
+    private final Object matchLock = new Object();
 
     public MatchmakingService(UserTree userTree, CallTree callTree, SimpMessagingTemplate messagingTemplate) {
         this.userTree = userTree;
@@ -47,16 +50,21 @@ public class MatchmakingService {
     }
 
     public void joinQueue(Long userId) {
+        logger.info(">>> [JOIN_QUEUE] Tentativa de entrada - userId={}", userId);
+        
         if (userInCall.containsKey(userId)) {
+            logger.warn(">>> [JOIN_QUEUE] Usuário já está em chamada - userId={}", userId);
             throw new IllegalStateException("Usuário já está em uma chamada");
         }
 
         if (waitingQueue.contains(userId)) {
+            logger.warn(">>> [JOIN_QUEUE] Usuário já está na fila - userId={}", userId);
             return;
         }
 
         waitingQueue.offer(userId);
-        logger.info("Usuário {} entrou na fila. Total na fila: {}", userId, waitingQueue.size());
+        logger.info(">>> [JOIN_QUEUE] Usuário adicionado à fila - userId={}, Total na fila: {}, Fila atual: {}", 
+                    userId, waitingQueue.size(), waitingQueue);
         tryMatch();
     }
     public void leaveQueue(Long userId) {
@@ -97,53 +105,71 @@ public class MatchmakingService {
     }
 
     private void tryMatch() {
-        if (waitingQueue.size() < 2) {
-            return;
+        synchronized (matchLock) {
+            logger.info(">>> [TRY_MATCH] Iniciando tentativa de pareamento - Fila: {}", waitingQueue.size());
+            
+            if (waitingQueue.size() < 2) {
+                logger.info(">>> [TRY_MATCH] Fila insuficiente - size={}", waitingQueue.size());
+                return;
+            }
+
+            Long user1Id = waitingQueue.poll();
+            Long user2Id = waitingQueue.poll();
+
+            logger.info(">>> [TRY_MATCH] Usuários retirados da fila - user1Id={}, user2Id={}", user1Id, user2Id);
+
+            if (user1Id == null || user2Id == null) {
+                logger.error(">>> [TRY_MATCH] Erro: usuário null - user1Id={}, user2Id={}", user1Id, user2Id);
+                return;
+            }
+            
+            if (user1Id.equals(user2Id)) {
+                logger.error(">>> [TRY_MATCH] ERRO CRÍTICO: Mesmo usuário duas vezes! userId={}", user1Id);
+                // Recolocar na fila
+                waitingQueue.offer(user1Id);
+                return;
+            }
+
+            UserEntity user1 = userTree.findById(user1Id);
+            UserEntity user2 = userTree.findById(user2Id);
+
+            if (user1 == null || user2 == null) {
+                logger.error(">>> [TRY_MATCH] Usuário não encontrado no banco - user1={}, user2={}", user1, user2);
+                return;
+            }
+
+            logger.info(">>> [TRY_MATCH] Criando chamada - user1: {} ({}), user2: {} ({})", 
+                        user1Id, user1.getName(), user2Id, user2.getName());
+
+            CallEntity call = new CallEntity();
+            call.setUser1(user1);
+            call.setUser2(user2);
+            call.setStartedAt(LocalDateTime.now());
+            call.setCallType(CallEntity.CallType.VIDEO);
+            call.setStatus(CallEntity.CallStatus.ACTIVE);
+
+            call = callTree.addCall(call);
+
+            userInCall.put(user1Id, call.getId());
+            userInCall.put(user2Id, call.getId());
+
+            Map<String, Object> matchData = Map.of(
+                "callId", call.getId(),
+                "peerId", user2Id,
+                "peerName", user2.getName()
+            );
+            sendToUser(user1Id, "/queue/match-found", matchData);
+
+            matchData = Map.of(
+                "callId", call.getId(),
+                "peerId", user1Id,
+                "peerName", user1.getName()
+            );
+            sendToUser(user2Id, "/queue/match-found", matchData);
+
+            logger.info(">>> [TRY_MATCH] Pareamento concluído! CallID={}, User1={} ({}), User2={} ({})", 
+                        call.getId(), user1Id, user1.getName(), user2Id, user2.getName());
         }
-
-        Long user1Id = waitingQueue.poll();
-        Long user2Id = waitingQueue.poll();
-
-        if (user1Id == null || user2Id == null) {
-            return;
-        }
-
-        UserEntity user1 = userTree.findById(user1Id);
-        UserEntity user2 = userTree.findById(user2Id);
-
-        if (user1 == null || user2 == null) {
-            logger.error("Usuário não encontrado. user1Id={}, user2Id={}", user1Id, user2Id);
-            return;
-        }
-
-        CallEntity call = new CallEntity();
-        call.setUser1(user1);
-        call.setUser2(user2);
-        call.setStartedAt(LocalDateTime.now());
-        call.setCallType(CallEntity.CallType.VIDEO);
-        call.setStatus(CallEntity.CallStatus.ACTIVE);
-
-        call = callTree.addCall(call);
-
-        userInCall.put(user1Id, call.getId());
-        userInCall.put(user2Id, call.getId());
-
-        Map<String, Object> matchData = Map.of(
-            "callId", call.getId(),
-            "peerId", user2Id,
-            "peerName", user2.getName()
-        );
-        sendToUser(user1Id, "/queue/match-found", matchData);
-
-        matchData = Map.of(
-            "callId", call.getId(),
-            "peerId", user1Id,
-            "peerName", user1.getName()
-        );
-        sendToUser(user2Id, "/queue/match-found", matchData);
-
-        logger.info("Pareamento realizado! Call ID: {}, User1: {}, User2: {}", 
-                    call.getId(), user1Id, user2Id);
     }
 
     private void sendToUser(Long userId, String destination, Object payload) {
