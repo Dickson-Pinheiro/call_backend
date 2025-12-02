@@ -3,6 +3,7 @@ package com.group_call.call_backend.controller;
 import com.group_call.call_backend.dto.CallCreateRequest;
 import com.group_call.call_backend.dto.CallResponse;
 import com.group_call.call_backend.entity.CallEntity;
+import com.group_call.call_backend.security.AuthenticationHelper;
 import com.group_call.call_backend.service.CallService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -18,13 +19,21 @@ import java.util.stream.Collectors;
 public class CallController {
 
     private final CallService callService;
+    private final AuthenticationHelper authHelper;
 
-    public CallController(CallService callService) {
+    public CallController(CallService callService, AuthenticationHelper authHelper) {
         this.callService = callService;
+        this.authHelper = authHelper;
     }
 
     @PostMapping
     public ResponseEntity<CallResponse> createCall(@Valid @RequestBody CallCreateRequest request) {
+        Long currentUserId = authHelper.getCurrentUserId();
+        
+        if (!currentUserId.equals(request.getUser1Id()) && !currentUserId.equals(request.getUser2Id())) {
+            throw new IllegalArgumentException("Você deve ser um dos participantes da chamada");
+        }
+        
         CallEntity.CallType callType = CallEntity.CallType.VIDEO;
         if (request.getCallType() != null) {
             try {
@@ -45,12 +54,23 @@ public class CallController {
     @GetMapping("/{id}")
     public ResponseEntity<CallResponse> getCallById(@PathVariable Long id) {
         CallEntity call = callService.findById(id);
+        
+        if (!authHelper.isInCall(call.getUser1().getId(), call.getUser2().getId())) {
+            throw new IllegalArgumentException("Acesso negado");
+        }
+        
         return ResponseEntity.ok(toResponse(call));
     }
 
     @GetMapping
     public ResponseEntity<List<CallResponse>> getAllCalls() {
-        List<CallEntity> calls = callService.getAllCalls();
+        Long currentUserId = authHelper.getCurrentUserId();
+        
+        List<CallEntity> calls = callService.getAllCalls().stream()
+                .filter(call -> call.getUser1().getId().equals(currentUserId) || 
+                               call.getUser2().getId().equals(currentUserId))
+                .collect(Collectors.toList());
+        
         List<CallResponse> response = calls.stream()
                 .map(this::toResponse)
                 .collect(Collectors.toList());
@@ -59,9 +79,15 @@ public class CallController {
 
     @GetMapping("/status/{status}")
     public ResponseEntity<List<CallResponse>> getCallsByStatus(@PathVariable String status) {
+        Long currentUserId = authHelper.getCurrentUserId();
+        
         try {
             CallEntity.CallStatus callStatus = CallEntity.CallStatus.valueOf(status.toUpperCase());
-            List<CallEntity> calls = callService.findByStatus(callStatus);
+            List<CallEntity> calls = callService.findByStatus(callStatus).stream()
+                    .filter(call -> call.getUser1().getId().equals(currentUserId) || 
+                                   call.getUser2().getId().equals(currentUserId))
+                    .collect(Collectors.toList());
+            
             List<CallResponse> response = calls.stream()
                     .map(this::toResponse)
                     .collect(Collectors.toList());
@@ -73,7 +99,13 @@ public class CallController {
 
     @GetMapping("/active")
     public ResponseEntity<List<CallResponse>> getActiveCalls() {
-        List<CallEntity> calls = callService.getActiveCalls();
+        Long currentUserId = authHelper.getCurrentUserId();
+        
+        List<CallEntity> calls = callService.getActiveCalls().stream()
+                .filter(call -> call.getUser1().getId().equals(currentUserId) || 
+                               call.getUser2().getId().equals(currentUserId))
+                .collect(Collectors.toList());
+        
         List<CallResponse> response = calls.stream()
                 .map(this::toResponse)
                 .collect(Collectors.toList());
@@ -82,7 +114,13 @@ public class CallController {
 
     @GetMapping("/completed")
     public ResponseEntity<List<CallResponse>> getCompletedCalls() {
-        List<CallEntity> calls = callService.getCompletedCalls();
+        Long currentUserId = authHelper.getCurrentUserId();
+        
+        List<CallEntity> calls = callService.getCompletedCalls().stream()
+                .filter(call -> call.getUser1().getId().equals(currentUserId) || 
+                               call.getUser2().getId().equals(currentUserId))
+                .collect(Collectors.toList());
+        
         List<CallResponse> response = calls.stream()
                 .map(this::toResponse)
                 .collect(Collectors.toList());
@@ -91,13 +129,27 @@ public class CallController {
 
     @PostMapping("/{id}/end")
     public ResponseEntity<CallResponse> endCall(@PathVariable Long id) {
-        CallEntity call = callService.endCall(id);
+        CallEntity call = callService.findById(id);
+        
+        // Validar que o usuário é participante da chamada
+        if (!authHelper.isInCall(call.getUser1().getId(), call.getUser2().getId())) {
+            throw new IllegalArgumentException("Acesso negado");
+        }
+        
+        call = callService.endCall(id);
         return ResponseEntity.ok(toResponse(call));
     }
 
     @PostMapping("/{id}/cancel")
     public ResponseEntity<CallResponse> cancelCall(@PathVariable Long id) {
-        CallEntity call = callService.cancelCall(id);
+        CallEntity call = callService.findById(id);
+        
+        // Validar que o usuário é participante da chamada
+        if (!authHelper.isInCall(call.getUser1().getId(), call.getUser2().getId())) {
+            throw new IllegalArgumentException("Acesso negado");
+        }
+        
+        call = callService.cancelCall(id);
         return ResponseEntity.ok(toResponse(call));
     }
 
@@ -106,9 +158,15 @@ public class CallController {
             @PathVariable Long id,
             @RequestParam String callType) {
         
+        CallEntity call = callService.findById(id);
+        
+        if (!authHelper.isInCall(call.getUser1().getId(), call.getUser2().getId())) {
+            throw new IllegalArgumentException("Acesso negado");
+        }
+        
         try {
             CallEntity.CallType type = CallEntity.CallType.valueOf(callType.toUpperCase());
-            CallEntity call = callService.updateCallType(id, type);
+            call = callService.updateCallType(id, type);
             return ResponseEntity.ok(toResponse(call));
         } catch (IllegalArgumentException e) {
             throw new IllegalArgumentException("Tipo de chamada inválido. Use VIDEO ou AUDIO");
@@ -117,6 +175,12 @@ public class CallController {
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteCall(@PathVariable Long id) {
+        CallEntity call = callService.findById(id);
+        
+        if (!authHelper.isInCall(call.getUser1().getId(), call.getUser2().getId())) {
+            throw new IllegalArgumentException("Acesso negado");
+        }
+        
         callService.deleteCall(id);
         return ResponseEntity.noContent().build();
     }

@@ -3,6 +3,7 @@ package com.group_call.call_backend.controller;
 import com.group_call.call_backend.dto.UserCreateRequest;
 import com.group_call.call_backend.dto.UserResponse;
 import com.group_call.call_backend.entity.UserEntity;
+import com.group_call.call_backend.security.AuthenticationHelper;
 import com.group_call.call_backend.service.UserService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -17,9 +18,11 @@ import java.util.stream.Collectors;
 public class UserController {
 
     private final UserService userService;
+    private final AuthenticationHelper authHelper;
 
-    public UserController(UserService userService) {
+    public UserController(UserService userService, AuthenticationHelper authHelper) {
         this.userService = userService;
+        this.authHelper = authHelper;
     }
 
     @PostMapping
@@ -35,8 +38,18 @@ public class UserController {
         return ResponseEntity.status(HttpStatus.CREATED).body(toResponse(createdUser));
     }
 
+    @GetMapping("/me")
+    public ResponseEntity<UserResponse> getCurrentUser() {
+        Long userId = authHelper.getCurrentUserId();
+        UserEntity user = userService.findById(userId);
+        return ResponseEntity.ok(toResponse(user));
+    }
+
     @GetMapping("/{id}")
     public ResponseEntity<UserResponse> getUserById(@PathVariable Long id) {
+        if (!authHelper.isOwner(id)) {
+            throw new IllegalArgumentException("Acesso negado");
+        }
         UserEntity user = userService.findById(id);
         return ResponseEntity.ok(toResponse(user));
     }
@@ -61,6 +74,10 @@ public class UserController {
             @PathVariable Long id,
             @Valid @RequestBody UserCreateRequest request) {
         
+        if (!authHelper.isOwner(id)) {
+            throw new IllegalArgumentException("Acesso negado");
+        }
+        
         UserEntity user = new UserEntity();
         user.setName(request.getName());
         user.setEmail(request.getEmail());
@@ -75,6 +92,10 @@ public class UserController {
             @PathVariable Long id,
             @RequestParam boolean isOnline) {
         
+        if (!authHelper.isOwner(id)) {
+            throw new IllegalArgumentException("Acesso negado");
+        }
+        
         UserEntity user = userService.updateOnlineStatus(id, isOnline);
         return ResponseEntity.ok(toResponse(user));
     }
@@ -83,6 +104,9 @@ public class UserController {
     public ResponseEntity<UserResponse> updateActiveStatus(
             @PathVariable Long id,
             @RequestParam boolean isActive) {
+        if (!authHelper.isOwner(id)) {
+            throw new IllegalArgumentException("Acesso negado");
+        }
         
         UserEntity user = userService.updateActiveStatus(id, isActive);
         return ResponseEntity.ok(toResponse(user));
@@ -90,6 +114,9 @@ public class UserController {
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteUser(@PathVariable Long id) {
+        if (!authHelper.isOwner(id)) {
+            throw new IllegalArgumentException("Acesso negado");
+        }
         userService.deleteUser(id);
         return ResponseEntity.noContent().build();
     }
