@@ -7,13 +7,14 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.listener.ChannelTopic;
 import org.springframework.data.redis.listener.RedisMessageListenerContainer;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.messaging.simp.user.SimpUser;
+import org.springframework.messaging.simp.user.SimpUserRegistry;
 import org.springframework.stereotype.Service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
 
 import jakarta.annotation.PostConstruct;
-import java.util.Map;
 
 @Service
 public class RedisWebSocketBroadcastService {
@@ -24,15 +25,18 @@ public class RedisWebSocketBroadcastService {
     private final RedisTemplate<String, String> stringRedisTemplate;
     private final RedisMessageListenerContainer redisMessageListenerContainer;
     private final SimpMessagingTemplate messagingTemplate;
+    private final SimpUserRegistry simpUserRegistry;
     private final ObjectMapper objectMapper;
 
     public RedisWebSocketBroadcastService(
             @Qualifier("customStringRedisTemplate") RedisTemplate<String, String> stringRedisTemplate,
             RedisMessageListenerContainer redisMessageListenerContainer,
-            SimpMessagingTemplate messagingTemplate) {
+            SimpMessagingTemplate messagingTemplate,
+            SimpUserRegistry simpUserRegistry) {
         this.stringRedisTemplate = stringRedisTemplate;
         this.redisMessageListenerContainer = redisMessageListenerContainer;
         this.messagingTemplate = messagingTemplate;
+        this.simpUserRegistry = simpUserRegistry;
         this.objectMapper = new ObjectMapper();
     }
 
@@ -41,31 +45,40 @@ public class RedisWebSocketBroadcastService {
         // Subscribe to Redis channel for WebSocket broadcasts
         ChannelTopic topic = new ChannelTopic(WEBSOCKET_BROADCAST_CHANNEL);
         redisMessageListenerContainer.addMessageListener((message, pattern) -> {
-            try {
-                String payload = new String(message.getBody());
-                WebSocketMessage wsMessage = objectMapper.readValue(payload, WebSocketMessage.class);
-                
-                logger.info(">>> [REDIS_WS_BROADCAST] Recebida mensagem Redis - userId={}, destination={}", 
-                           wsMessage.getUserId(), wsMessage.getDestination());
-                
-                // Envia para o usuário conectado neste servidor
-                messagingTemplate.convertAndSendToUser(
-                    wsMessage.getUserId().toString(), 
-                    wsMessage.getDestination(), 
-                    wsMessage.getPayload()
-                );
-                
-            } catch (Exception e) {
-                logger.error(">>> [REDIS_WS_BROADCAST] Erro ao processar mensagem Redis", e);
-            }
+                try {
+                    String payload = new String(message.getBody());
+                    WebSocketMessage wsMessage = objectMapper.readValue(payload, WebSocketMessage.class);
+
+                    logger.info(
+                            ">>> [REDIS_WS_BROADCAST] Recebida mensagem Redis - userId={}, destination={}, payloadClass={}",
+                            wsMessage.getUserId(), wsMessage.getDestination(),
+                            wsMessage.getPayload() != null ? wsMessage.getPayload().getClass().getName() : "null");
+
+                    // Log whether the target user is connected to this server
+                    SimpUser simpUser = simpUserRegistry.getUser(wsMessage.getUserId().toString());
+                    if (simpUser != null) {
+                        logger.info(
+                                ">>> [REDIS_WS_BROADCAST] usuário conectado neste servidor - userId={}, sessions={} ",
+                                wsMessage.getUserId(), simpUser.getSessions().size());
+                    } else {
+                        logger.info(">>> [REDIS_WS_BROADCAST] usuário NÃO conectado neste servidor - userId={}", wsMessage.getUserId());
+                    }
+
+                    // Envia para o usuário conectado neste servidor
+                    messagingTemplate.convertAndSendToUser(
+                            wsMessage.getUserId().toString(),
+                            wsMessage.getDestination(),
+                            wsMessage.getPayload()
+                    );
+
+                } catch (Exception e) {
+                    logger.error(">>> [REDIS_WS_BROADCAST] Erro ao processar mensagem Redis", e);
+                }
         }, topic);
         
         logger.info(">>> [REDIS_WS_BROADCAST] Listener registrado no canal: {}", WEBSOCKET_BROADCAST_CHANNEL);
     }
 
-    /**
-     * Publica mensagem WebSocket para todos os servidores via Redis
-     */
     public void broadcastToUser(Long userId, String destination, Object payload) {
         try {
             WebSocketMessage message = new WebSocketMessage(userId, destination, payload);
@@ -81,9 +94,6 @@ public class RedisWebSocketBroadcastService {
         }
     }
 
-    /**
-     * Classe interna para representar mensagem WebSocket
-     */
     public static class WebSocketMessage {
         private Long userId;
         private String destination;

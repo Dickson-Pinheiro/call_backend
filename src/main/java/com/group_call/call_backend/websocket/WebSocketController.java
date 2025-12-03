@@ -5,8 +5,10 @@ import com.group_call.call_backend.dto.WebRTCSignal;
 import com.group_call.call_backend.entity.CallEntity;
 import com.group_call.call_backend.entity.ChatMessageEntity;
 import com.group_call.call_backend.entity.UserEntity;
+import com.group_call.call_backend.repository.UserRepository;
 import com.group_call.call_backend.service.ChatMessageService;
 import com.group_call.call_backend.service.MatchmakingService;
+import com.group_call.call_backend.service.RedisWebSocketBroadcastService;
 import com.group_call.call_backend.tree.CallTree;
 import com.group_call.call_backend.tree.UserTree;
 import org.slf4j.Logger;
@@ -31,19 +33,25 @@ public class WebSocketController {
     private final ChatMessageService chatMessageService;
     private final CallTree callTree;
     private final UserTree userTree;
+    private final UserRepository userRepository;
     private final SimpMessagingTemplate messagingTemplate;
+    private final RedisWebSocketBroadcastService redisBroadcast;
 
     public WebSocketController(
             MatchmakingService matchmakingService,
             ChatMessageService chatMessageService,
             CallTree callTree,
             UserTree userTree,
-            SimpMessagingTemplate messagingTemplate) {
+            UserRepository userRepository,
+            SimpMessagingTemplate messagingTemplate,
+            RedisWebSocketBroadcastService redisBroadcast) {
         this.matchmakingService = matchmakingService;
         this.chatMessageService = chatMessageService;
         this.callTree = callTree;
         this.userTree = userTree;
+        this.userRepository = userRepository;
         this.messagingTemplate = messagingTemplate;
+        this.redisBroadcast = redisBroadcast;
     }
 
     @SubscribeMapping("/connect")
@@ -112,15 +120,20 @@ public class WebSocketController {
         Long senderId = Long.parseLong(principal.getName());
         Long targetUserId = signal.getTargetUserId();
 
+        Map<String, Object> signalData = Map.of(
+                "type", signal.getType(),
+                "senderId", senderId,
+                "data", signal.getData());
+
+        // Envia localmente
         messagingTemplate.convertAndSendToUser(
                 targetUserId.toString(),
                 "/queue/webrtc-signal",
-                Map.of(
-                        "type", signal.getType(),
-                        "senderId", senderId,
-                        "data", signal.getData()));
+                signalData);
+        
+        redisBroadcast.broadcastToUser(targetUserId, "/queue/webrtc-signal", signalData);
 
-        logger.debug("Sinal WebRTC {} enviado de {} para {}",
+        logger.info(">>> [WEBRTC_SIGNAL] Sinal {} enviado de {} para {} (local + Redis)",
                 signal.getType(), senderId, targetUserId);
     }
 
@@ -135,7 +148,7 @@ public class WebSocketController {
             return;
         }
 
-        UserEntity sender = userTree.findById(senderId);
+        UserEntity sender = userRepository.findById(senderId).orElse(null);
         if (sender == null) {
             sendError(senderId, "Usuário não encontrado");
             return;
@@ -162,13 +175,15 @@ public class WebSocketController {
                 senderId.toString(),
                 "/queue/chat",
                 response);
+        redisBroadcast.broadcastToUser(senderId, "/queue/chat", response);
 
         messagingTemplate.convertAndSendToUser(
                 recipientId.toString(),
                 "/queue/chat",
                 response);
+        redisBroadcast.broadcastToUser(recipientId, "/queue/chat", response);
 
-        logger.info("Mensagem enviada na chamada {} de {} para {}",
+        logger.info("Mensagem enviada na chamada {} de {} para {} (local + Redis)",
                 callId, senderId, recipientId);
     }
 
@@ -185,16 +200,24 @@ public class WebSocketController {
                 ? call.getUser2().getId()
                 : call.getUser1().getId();
 
+        Map<String, Object> typingData = Map.of("isTyping", true);
+        
+        // Envia local + Redis
         messagingTemplate.convertAndSendToUser(
                 recipientId.toString(),
                 "/queue/typing",
-                Map.of("isTyping", true));
+                typingData);
+        redisBroadcast.broadcastToUser(recipientId, "/queue/typing", typingData);
     }
 
     private void sendError(Long userId, String message) {
+        Map<String, Object> errorData = Map.of("error", message);
+        
+        // Envia local + Redis
         messagingTemplate.convertAndSendToUser(
                 userId.toString(),
                 "/queue/error",
-                Map.of("error", message));
+                errorData);
+        redisBroadcast.broadcastToUser(userId, "/queue/error", errorData);
     }
 }
