@@ -24,4 +24,16 @@ public interface CallRatingRepository extends JpaRepository<CallRatingEntity, Lo
     Double getAverageRatingForUser(@Param("user") UserEntity user);
 
     List<CallRatingEntity> findByRatingGreaterThanEqual(Integer rating);
+
+    @Query("SELECT cr FROM CallRatingEntity cr JOIN FETCH cr.rater JOIN FETCH cr.call c JOIN FETCH c.user1 JOIN FETCH c.user2")
+    List<CallRatingEntity> findAllWithDetails();
+
+    @Query("SELECT cr FROM CallRatingEntity cr JOIN FETCH cr.rater JOIN FETCH cr.call c JOIN FETCH c.user1 JOIN FETCH c.user2 WHERE cr.id = :id")
+    Optional<CallRatingEntity> findByIdWithDetails(@Param("id") Long id);
+
+    @Query("SELECT cr FROM CallRatingEntity cr JOIN FETCH cr.rater JOIN FETCH cr.call c JOIN FETCH c.user1 JOIN FETCH c.user2 WHERE cr.call = :call")
+    Optional<CallRatingEntity> findByCallWithDetails(@Param("call") CallEntity call);
+
+    @Query("SELECT cr FROM CallRatingEntity cr JOIN FETCH cr.rater JOIN FETCH cr.call c JOIN FETCH c.user1 JOIN FETCH c.user2 WHERE cr.rater = :rater")
+    List<CallRatingEntity> findByRaterWithDetails(@Param("rater") UserEntity rater);
 }

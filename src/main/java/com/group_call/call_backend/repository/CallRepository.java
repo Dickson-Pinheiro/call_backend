@@ -17,9 +17,15 @@ public interface CallRepository extends JpaRepository<CallEntity, Long> {
 
     List<CallEntity> findByStatus(CallEntity.CallStatus status);
 
-    @Query("SELECT c FROM CallEntity c WHERE (c.user1 = :user OR c.user2 = :user) AND c.status = :status")
+    @Query("SELECT c FROM CallEntity c JOIN FETCH c.user1 JOIN FETCH c.user2 WHERE c.status = :status")
+    List<CallEntity> findByStatusWithUsers(@Param("status") CallEntity.CallStatus status);
+
+    @Query("SELECT c FROM CallEntity c JOIN FETCH c.user1 JOIN FETCH c.user2")
+    List<CallEntity> findAllWithUsers();
+
+    @Query("SELECT c FROM CallEntity c JOIN FETCH c.user1 JOIN FETCH c.user2 WHERE (c.user1 = :user OR c.user2 = :user) AND c.status = :status")
     List<CallEntity> findByUserAndStatus(@Param("user") UserEntity user, @Param("status") CallEntity.CallStatus status);
 
-    @Query("SELECT c FROM CallEntity c WHERE (c.user1 = :user OR c.user2 = :user) AND c.startedAt BETWEEN :startDate AND :endDate")
+    @Query("SELECT c FROM CallEntity c JOIN FETCH c.user1 JOIN FETCH c.user2 WHERE (c.user1 = :user OR c.user2 = :user) AND c.startedAt BETWEEN :startDate AND :endDate")
     List<CallEntity> findByUserAndDateRange(@Param("user") UserEntity user, @Param("startDate") LocalDateTime startDate, @Param("endDate") LocalDateTime endDate);
 }

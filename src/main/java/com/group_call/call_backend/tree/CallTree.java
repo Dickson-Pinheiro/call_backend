@@ -18,7 +18,7 @@ public class CallTree extends AVLTree<CallEntity> {
 
     public void loadFromDatabase() {
         clear();
-        List<CallEntity> calls = callRepository.findAll();
+        List<CallEntity> calls = callRepository.findAllWithUsers();
         for (CallEntity call : calls) {
             insert(call.getId(), call);
         }
@@ -47,7 +47,7 @@ public class CallTree extends AVLTree<CallEntity> {
     }
 
     public List<CallEntity> findByStatus(CallEntity.CallStatus status) {
-        return callRepository.findByStatus(status);
+        return callRepository.findByStatusWithUsers(status);
     }
 
     public List<CallEntity> getAllCallsSorted() {

@@ -18,7 +18,7 @@ public class CallRatingTree extends AVLTree<CallRatingEntity> {
 
     public void loadFromDatabase() {
         clear();
-        List<CallRatingEntity> ratings = callRatingRepository.findAll();
+        List<CallRatingEntity> ratings = callRatingRepository.findAllWithDetails();
         for (CallRatingEntity rating : ratings) {
             insert(rating.getId(), rating);
         }
@@ -26,16 +26,19 @@ public class CallRatingTree extends AVLTree<CallRatingEntity> {
 
     public CallRatingEntity addRating(CallRatingEntity rating) {
         CallRatingEntity savedRating = callRatingRepository.save(rating);
-        insert(savedRating.getId(), savedRating);
-        return savedRating;
+        CallRatingEntity ratingWithDetails = callRatingRepository.findByIdWithDetails(savedRating.getId())
+                .orElse(savedRating);
+        insert(ratingWithDetails.getId(), ratingWithDetails);
+        return ratingWithDetails;
     }
 
     public CallRatingEntity updateRating(CallRatingEntity rating) {
         CallRatingEntity updatedRating = callRatingRepository.save(rating);
-        // Remove e reinsere para garantir atualização
-        delete(updatedRating.getId());
-        insert(updatedRating.getId(), updatedRating);
-        return updatedRating;
+        CallRatingEntity ratingWithDetails = callRatingRepository.findByIdWithDetails(updatedRating.getId())
+                .orElse(updatedRating);
+        delete(ratingWithDetails.getId());
+        insert(ratingWithDetails.getId(), ratingWithDetails);
+        return ratingWithDetails;
     }
 
     public void removeRating(Long ratingId) {
@@ -44,7 +47,14 @@ public class CallRatingTree extends AVLTree<CallRatingEntity> {
     }
 
     public CallRatingEntity findById(Long id) {
-        return search(id);
+        CallRatingEntity rating = search(id);
+        if (rating == null) {
+            rating = callRatingRepository.findByIdWithDetails(id).orElse(null);
+            if (rating != null) {
+                insert(rating.getId(), rating);
+            }
+        }
+        return rating;
     }
 
     public List<CallRatingEntity> findByRatingGreaterThanEqual(Integer rating) {
