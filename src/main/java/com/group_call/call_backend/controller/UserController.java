@@ -4,6 +4,7 @@ import com.group_call.call_backend.dto.UserCreateRequest;
 import com.group_call.call_backend.dto.UserResponse;
 import com.group_call.call_backend.entity.UserEntity;
 import com.group_call.call_backend.security.AuthenticationHelper;
+import com.group_call.call_backend.service.MatchmakingService;
 import com.group_call.call_backend.service.UserService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -11,6 +12,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @RestController
@@ -19,10 +21,12 @@ public class UserController {
 
     private final UserService userService;
     private final AuthenticationHelper authHelper;
+    private final MatchmakingService matchmakingService;
 
-    public UserController(UserService userService, AuthenticationHelper authHelper) {
+    public UserController(UserService userService, AuthenticationHelper authHelper, MatchmakingService matchmakingService) {
         this.userService = userService;
         this.authHelper = authHelper;
+        this.matchmakingService = matchmakingService;
     }
 
     @PostMapping
@@ -119,6 +123,19 @@ public class UserController {
         }
         userService.deleteUser(id);
         return ResponseEntity.noContent().build();
+    }
+    
+    @PostMapping("/{id}/cleanup-call-state")
+    public ResponseEntity<Map<String, String>> cleanupCallState(@PathVariable Long id) {
+        if (!authHelper.isOwner(id)) {
+            throw new IllegalArgumentException("Acesso negado");
+        }
+        
+        matchmakingService.forceCleanupCallState(id);
+        return ResponseEntity.ok(Map.of(
+            "status", "success",
+            "message", "Estado de chamada limpo com sucesso"
+        ));
     }
 
     private UserResponse toResponse(UserEntity user) {

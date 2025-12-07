@@ -28,15 +28,9 @@ public class WebSocketEventListener {
         if (userIdStr != null) {
             Long userId = Long.parseLong(userIdStr);
             
-            logger.info("Usuário {} desconectado", userId);
             
-            matchmakingService.leaveQueue(userId);
-            
-            if (matchmakingService.isInCall(userId)) {
-                Long callId = matchmakingService.getUserCallId(userId);
-                matchmakingService.endCall(callId, userId);
-            }
-            matchmakingService.unregisterSession(userId);
+            // Limpa todo o estado do usuário (fila, chamada, sessão, status)
+            matchmakingService.cleanupUserOnDisconnect(userId);
         }
     }
 }

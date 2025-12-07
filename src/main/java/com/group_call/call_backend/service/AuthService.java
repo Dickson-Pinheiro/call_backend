@@ -4,22 +4,31 @@ import com.group_call.call_backend.entity.UserEntity;
 import com.group_call.call_backend.repository.UserRepository;
 import com.group_call.call_backend.security.JwtTokenProvider;
 import com.group_call.call_backend.tree.UserTree;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
 @Service
 public class AuthService {
 
+    private static final Logger logger = LoggerFactory.getLogger(AuthService.class);
+
     private final UserTree userTree;
     private final UserRepository userRepository;
     private final JwtTokenProvider tokenProvider;
     private final BCryptPasswordEncoder passwordEncoder;
+    private final MatchmakingService matchmakingService;
 
-    public AuthService(UserTree userTree, UserRepository userRepository, JwtTokenProvider tokenProvider) {
+    public AuthService(UserTree userTree, UserRepository userRepository, 
+                      JwtTokenProvider tokenProvider,
+                      @Lazy MatchmakingService matchmakingService) {
         this.userTree = userTree;
         this.userRepository = userRepository;
         this.tokenProvider = tokenProvider;
         this.passwordEncoder = new BCryptPasswordEncoder();
+        this.matchmakingService = matchmakingService;
     }
 
     public UserEntity signup(String name, String email, String password) {
@@ -66,12 +75,19 @@ public class AuthService {
     }
 
     public void logout(Long userId) {
+        
         UserEntity user = userTree.findById(userId);
         if (user == null) {
             throw new IllegalArgumentException("Usuário não encontrado");
         }
         
+        try {
+            matchmakingService.cleanupUserOnDisconnect(userId);
+        } catch (Exception e) {
+        }
+        
         user.setIsOnline(false);
         userTree.updateUser(user);
+        
     }
 }

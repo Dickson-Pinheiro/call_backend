@@ -3,6 +3,7 @@ package com.group_call.call_backend.service;
 import com.group_call.call_backend.entity.CallEntity;
 import com.group_call.call_backend.entity.CallRatingEntity;
 import com.group_call.call_backend.entity.UserEntity;
+import com.group_call.call_backend.repository.CallRatingRepository;
 import com.group_call.call_backend.tree.CallRatingTree;
 import org.springframework.stereotype.Service;
 
@@ -13,11 +14,14 @@ import java.util.List;
 public class CallRatingService {
 
     private final CallRatingTree callRatingTree;
+    private final CallRatingRepository callRatingRepository;
     private final CallService callService;
     private final UserService userService;
 
-    public CallRatingService(CallRatingTree callRatingTree, CallService callService, UserService userService) {
+    public CallRatingService(CallRatingTree callRatingTree, CallRatingRepository callRatingRepository,
+                           CallService callService, UserService userService) {
         this.callRatingTree = callRatingTree;
+        this.callRatingRepository = callRatingRepository;
         this.callService = callService;
         this.userService = userService;
     }
@@ -49,6 +53,10 @@ public class CallRatingService {
 
     public CallRatingEntity findById(Long id) {
         CallRatingEntity rating = callRatingTree.findById(id);
+        if (rating == null) {
+            // Fallback: tenta buscar no repository
+            rating = callRatingRepository.findById(id).orElse(null);
+        }
         if (rating == null) {
             throw new IllegalArgumentException("Avaliação não encontrada com ID: " + id);
         }

@@ -5,12 +5,11 @@ import com.group_call.call_backend.dto.WebRTCSignal;
 import com.group_call.call_backend.entity.CallEntity;
 import com.group_call.call_backend.entity.ChatMessageEntity;
 import com.group_call.call_backend.entity.UserEntity;
+import com.group_call.call_backend.repository.CallRepository;
 import com.group_call.call_backend.repository.UserRepository;
 import com.group_call.call_backend.service.ChatMessageService;
 import com.group_call.call_backend.service.MatchmakingService;
 import com.group_call.call_backend.service.RedisWebSocketBroadcastService;
-import com.group_call.call_backend.tree.CallTree;
-import com.group_call.call_backend.tree.UserTree;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.messaging.handler.annotation.MessageMapping;
@@ -31,25 +30,22 @@ public class WebSocketController {
 
     private final MatchmakingService matchmakingService;
     private final ChatMessageService chatMessageService;
-    private final CallTree callTree;
-    private final UserTree userTree;
     private final UserRepository userRepository;
+    private final CallRepository callRepository;
     private final SimpMessagingTemplate messagingTemplate;
     private final RedisWebSocketBroadcastService redisBroadcast;
 
     public WebSocketController(
             MatchmakingService matchmakingService,
             ChatMessageService chatMessageService,
-            CallTree callTree,
-            UserTree userTree,
             UserRepository userRepository,
+            CallRepository callRepository,
             SimpMessagingTemplate messagingTemplate,
             RedisWebSocketBroadcastService redisBroadcast) {
         this.matchmakingService = matchmakingService;
         this.chatMessageService = chatMessageService;
-        this.callTree = callTree;
-        this.userTree = userTree;
         this.userRepository = userRepository;
+        this.callRepository = callRepository;
         this.messagingTemplate = messagingTemplate;
         this.redisBroadcast = redisBroadcast;
     }
@@ -58,18 +54,12 @@ public class WebSocketController {
     public void handleConnect(SimpMessageHeaderAccessor headerAccessor, Principal principal) {
         Long userId = Long.parseLong(principal.getName());
         String sessionId = headerAccessor.getSessionId();
-
         matchmakingService.registerSession(userId, sessionId);
-
-        logger.info(">>> [WS_CONNECT] Usuário conectado - userId={}, sessionId={}", userId, sessionId);
     }
 
     @MessageMapping("/join-queue")
     public void joinQueue(Principal principal) {
         Long userId = Long.parseLong(principal.getName());
-        
-        logger.info(">>> [WS_JOIN_QUEUE] Recebida requisição - userId={}, principal.name={}", 
-                    userId, principal.getName());
 
         try {
             matchmakingService.joinQueue(userId);
@@ -82,10 +72,8 @@ public class WebSocketController {
                     userId.toString(),
                     "/queue/status",
                     response);
-
-            logger.info(">>> [WS_JOIN_QUEUE] Resposta enviada - userId={}", userId);
         } catch (IllegalStateException e) {
-            logger.error(">>> [WS_JOIN_QUEUE] Erro - userId={}, error={}", userId, e.getMessage());
+            logger.error("Erro ao entrar na fila - userId={}: {}", userId, e.getMessage());
             sendError(userId, e.getMessage());
         }
     }
@@ -94,15 +82,11 @@ public class WebSocketController {
     public void leaveQueue(Principal principal) {
         Long userId = Long.parseLong(principal.getName());
         matchmakingService.leaveQueue(userId);
-
-        logger.info("Usuário {} saiu da fila", userId);
     }
 
     @MessageMapping("/next-person")
     public void nextPerson(Principal principal) {
         Long userId = Long.parseLong(principal.getName());
-
-        logger.info("Usuário {} solicitou próxima pessoa", userId);
         matchmakingService.nextPerson(userId);
     }
 
@@ -110,114 +94,118 @@ public class WebSocketController {
     public void endCall(@Payload Map<String, Object> payload, Principal principal) {
         Long userId = Long.parseLong(principal.getName());
         Long callId = Long.parseLong(payload.get("callId").toString());
-
-        logger.info("Usuário {} encerrando chamada {}", userId, callId);
         matchmakingService.endCall(callId, userId);
     }
 
     @MessageMapping("/webrtc-signal")
     public void handleWebRTCSignal(@Payload WebRTCSignal signal, Principal principal) {
-        Long senderId = Long.parseLong(principal.getName());
-        Long targetUserId = signal.getTargetUserId();
+        try {
+            Long senderId = Long.parseLong(principal.getName());
+            Long targetUserId = signal.getTargetUserId();
+            Long callId = signal.getCallId();
 
-        Map<String, Object> signalData = Map.of(
-                "type", signal.getType(),
-                "senderId", senderId,
-                "data", signal.getData());
+            if (targetUserId == null) {
+                throw new IllegalArgumentException("targetUserId é obrigatório");
+            }
+            if (callId == null) {
+                throw new IllegalArgumentException("callId é obrigatório");
+            }
 
-        // Envia localmente
-        messagingTemplate.convertAndSendToUser(
-                targetUserId.toString(),
-                "/queue/webrtc-signal",
-                signalData);
-        
-        redisBroadcast.broadcastToUser(targetUserId, "/queue/webrtc-signal", signalData);
+            Map<String, Object> signalData = new HashMap<>();
+            signalData.put("type", signal.getType());
+            signalData.put("senderId", senderId);
+            signalData.put("targetUserId", targetUserId);
+            signalData.put("callId", callId);
+            signalData.put("data", signal.getData());
 
-        logger.info(">>> [WEBRTC_SIGNAL] Sinal {} enviado de {} para {} (local + Redis)",
-                signal.getType(), senderId, targetUserId);
+            redisBroadcast.broadcastWebRTCSignal(targetUserId, signalData);
+        } catch (Exception e) {
+            logger.error("Erro ao processar sinal WebRTC: {}", e.getMessage());
+            throw e;
+        }
     }
 
     @MessageMapping("/chat-message")
     public void handleChatMessage(@Payload ChatMessage message, Principal principal) {
-        Long senderId = Long.parseLong(principal.getName());
-        Long callId = message.getCallId();
+        try {
+            Long senderId = Long.parseLong(principal.getName());
+            Long callId = message.getCallId();
 
-        CallEntity call = callTree.findById(callId);
-        if (call == null) {
-            sendError(senderId, "Chamada não encontrada");
-            return;
+            CallEntity call = callRepository.findById(callId).orElse(null);
+            if (call == null || call.getStatus() != CallEntity.CallStatus.ACTIVE) {
+                sendError(senderId, "Chamada encerrada");
+                return;
+            }
+
+            UserEntity sender = userRepository.findById(senderId).orElse(null);
+            if (sender == null) {
+                sendError(senderId, "Usuário não encontrado");
+                return;
+            }
+
+            ChatMessageEntity chatMessage = chatMessageService.createMessage(
+                    callId,
+                    senderId,
+                    message.getMessage());
+
+            Long recipientId = call.getUser1().getId().equals(senderId)
+                    ? call.getUser2().getId()
+                    : call.getUser1().getId();
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("id", chatMessage.getId());
+            response.put("callId", callId);
+            response.put("senderId", senderId);
+            response.put("senderName", sender.getName());
+            response.put("recipientId", recipientId);
+            response.put("message", message.getMessage());
+            response.put("sentAt", chatMessage.getSentAt().toString());
+
+            redisBroadcast.broadcastChatMessage(recipientId, response);
+        } catch (IllegalArgumentException e) {
+            logger.warn("Erro de validação no chat: {}", e.getMessage());
+            sendError(Long.parseLong(principal.getName()), e.getMessage());
+        } catch (Exception e) {
+            logger.error("Erro ao enviar mensagem: {}", e.getMessage());
+            sendError(Long.parseLong(principal.getName()), "Erro ao enviar mensagem");
         }
-
-        UserEntity sender = userRepository.findById(senderId).orElse(null);
-        if (sender == null) {
-            sendError(senderId, "Usuário não encontrado");
-            return;
-        }
-
-        ChatMessageEntity chatMessage = chatMessageService.createMessage(
-                callId,
-                senderId,
-                message.getMessage());
-
-        Long recipientId = call.getUser1().getId().equals(senderId)
-                ? call.getUser2().getId()
-                : call.getUser1().getId();
-
-        Map<String, Object> response = new HashMap<>();
-        response.put("id", chatMessage.getId());
-        response.put("callId", callId);
-        response.put("senderId", senderId);
-        response.put("senderName", sender.getName());
-        response.put("message", message.getMessage());
-        response.put("sentAt", chatMessage.getSentAt().toString());
-
-        messagingTemplate.convertAndSendToUser(
-                senderId.toString(),
-                "/queue/chat",
-                response);
-        redisBroadcast.broadcastToUser(senderId, "/queue/chat", response);
-
-        messagingTemplate.convertAndSendToUser(
-                recipientId.toString(),
-                "/queue/chat",
-                response);
-        redisBroadcast.broadcastToUser(recipientId, "/queue/chat", response);
-
-        logger.info("Mensagem enviada na chamada {} de {} para {} (local + Redis)",
-                callId, senderId, recipientId);
     }
 
     @MessageMapping("/typing")
     public void handleTyping(@Payload Map<String, Object> payload, Principal principal) {
-        Long senderId = Long.parseLong(principal.getName());
-        Long callId = Long.parseLong(payload.get("callId").toString());
+        try {
+            Long senderId = Long.parseLong(principal.getName());
+            Long callId = Long.parseLong(payload.get("callId").toString());
+            boolean isTyping = payload.containsKey("isTyping") ? (Boolean) payload.get("isTyping") : true;
 
-        CallEntity call = callTree.findById(callId);
-        if (call == null)
-            return;
+            CallEntity call = callRepository.findById(callId).orElse(null);
+            if (call == null || call.getStatus() != CallEntity.CallStatus.ACTIVE) {
+                return;
+            }
 
-        Long recipientId = call.getUser1().getId().equals(senderId)
-                ? call.getUser2().getId()
-                : call.getUser1().getId();
+            Long recipientId = call.getUser1().getId().equals(senderId)
+                    ? call.getUser2().getId()
+                    : call.getUser1().getId();
 
-        Map<String, Object> typingData = Map.of("isTyping", true);
-        
-        // Envia local + Redis
-        messagingTemplate.convertAndSendToUser(
-                recipientId.toString(),
-                "/queue/typing",
-                typingData);
-        redisBroadcast.broadcastToUser(recipientId, "/queue/typing", typingData);
+            Map<String, Object> typingData = Map.of(
+                "isTyping", isTyping,
+                "userId", senderId
+            );
+            
+            redisBroadcast.broadcastTypingIndicator(recipientId, typingData);
+        } catch (Exception e) {
+            logger.error("Erro ao processar typing indicator: {}", e.getMessage());
+        }
+    }
+    
+    @MessageMapping("/logout")
+    public void handleLogout(Principal principal) {
+        Long userId = Long.parseLong(principal.getName());
+        matchmakingService.cleanupUserOnDisconnect(userId);
     }
 
     private void sendError(Long userId, String message) {
         Map<String, Object> errorData = Map.of("error", message);
-        
-        // Envia local + Redis
-        messagingTemplate.convertAndSendToUser(
-                userId.toString(),
-                "/queue/error",
-                errorData);
-        redisBroadcast.broadcastToUser(userId, "/queue/error", errorData);
+        redisBroadcast.broadcastError(userId, errorData);
     }
 }

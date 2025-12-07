@@ -131,7 +131,6 @@ public class CallController {
     public ResponseEntity<CallResponse> endCall(@PathVariable Long id) {
         CallEntity call = callService.findById(id);
         
-        // Validar que o usuário é participante da chamada
         if (!authHelper.isInCall(call.getUser1().getId(), call.getUser2().getId())) {
             throw new IllegalArgumentException("Acesso negado");
         }
@@ -144,7 +143,6 @@ public class CallController {
     public ResponseEntity<CallResponse> cancelCall(@PathVariable Long id) {
         CallEntity call = callService.findById(id);
         
-        // Validar que o usuário é participante da chamada
         if (!authHelper.isInCall(call.getUser1().getId(), call.getUser2().getId())) {
             throw new IllegalArgumentException("Acesso negado");
         }

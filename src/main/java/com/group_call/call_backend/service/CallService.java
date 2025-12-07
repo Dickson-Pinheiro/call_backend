@@ -3,6 +3,7 @@ package com.group_call.call_backend.service;
 import com.group_call.call_backend.entity.CallEntity;
 import com.group_call.call_backend.entity.UserEntity;
 import com.group_call.call_backend.tree.CallTree;
+import com.group_call.call_backend.repository.CallRepository;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -14,10 +15,12 @@ public class CallService {
 
     private final CallTree callTree;
     private final UserService userService;
+    private final CallRepository callRepository;
 
-    public CallService(CallTree callTree, UserService userService) {
+    public CallService(CallTree callTree, UserService userService, CallRepository callRepository) {
         this.callTree = callTree;
         this.userService = userService;
+        this.callRepository = callRepository;
     }
 
     public CallEntity createCall(Long user1Id, Long user2Id, CallEntity.CallType callType) {
@@ -39,11 +42,15 @@ public class CallService {
     }
 
     public CallEntity findById(Long id) {
+        // Primeiro tenta na árvore em memória (rápido)
         CallEntity call = callTree.findById(id);
-        if (call == null) {
-            throw new IllegalArgumentException("Chamada não encontrada com ID: " + id);
+        if (call != null) {
+            return call;
         }
-        return call;
+
+        // Se não estiver na árvore, tenta no repositório como fallback
+        return callRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Chamada não encontrada com ID: " + id));
     }
 
     public List<CallEntity> getAllCalls() {

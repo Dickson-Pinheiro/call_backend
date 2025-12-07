@@ -31,4 +31,20 @@ build/
 
 ### VS Code ###
 .vscode/
-docs.md
+
+### Docker ###
+.env
+.env.local
+
+### Data ###
+data/
+*.db
+*.sqlite
+
+### Logs ###
+*.log
+logs/
+
+### Temporary ###
+tmp/
+temp/

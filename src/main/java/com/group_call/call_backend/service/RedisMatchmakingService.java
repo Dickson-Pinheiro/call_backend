@@ -29,14 +29,11 @@ public class RedisMatchmakingService {
     }
 
     public void joinQueue(Long userId) {
-        System.out.println(">>> [REDIS_JOIN_QUEUE] Adicionando userId=" + userId + " à fila Redis");
         redisTemplate.opsForList().rightPush(QUEUE_KEY, userId);
         Long queueSize = getQueueSize();
-        System.out.println(">>> [REDIS_JOIN_QUEUE] Total na fila Redis: " + queueSize);
     }
 
     public void leaveQueue(Long userId) {
-        System.out.println(">>> [REDIS_LEAVE_QUEUE] Removendo userId=" + userId + " da fila Redis");
         redisTemplate.opsForList().remove(QUEUE_KEY, 1, userId);
     }
 
@@ -45,12 +42,10 @@ public class RedisMatchmakingService {
         Long user2 = redisTemplate.opsForList().leftPop(QUEUE_KEY);
 
         if (user1 != null && user2 != null) {
-            System.out.println(">>> [REDIS_TRY_MATCH] Match encontrado! user1=" + user1 + ", user2=" + user2);
             return Optional.of(new Long[]{user1, user2});
         }
 
         if (user1 != null) {
-            System.out.println(">>> [REDIS_TRY_MATCH] Apenas 1 usuário na fila, devolvendo userId=" + user1);
             redisTemplate.opsForList().leftPush(QUEUE_KEY, user1);
         }
 
@@ -85,6 +80,19 @@ public class RedisMatchmakingService {
         return Boolean.TRUE.equals(stringRedisTemplate.hasKey(key));
     }
 
+    public Optional<Long> getPartnerUserId(Long userId) {
+        String key = USER_IN_CALL_PREFIX + userId;
+        String partnerIdStr = stringRedisTemplate.opsForValue().get(key);
+        if (partnerIdStr != null) {
+            try {
+                return Optional.of(Long.parseLong(partnerIdStr));
+            } catch (NumberFormatException e) {
+                return Optional.empty();
+            }
+        }
+        return Optional.empty();
+    }
+
     public void saveUserSession(Long userId, String sessionId) {
         String key = USER_SESSION_PREFIX + userId;
         stringRedisTemplate.opsForValue().set(key, sessionId, SESSION_TIMEOUT_MINUTES, TimeUnit.MINUTES);
@@ -103,7 +111,6 @@ public class RedisMatchmakingService {
 
     public void clearQueue() {
         redisTemplate.delete(QUEUE_KEY);
-        System.out.println(">>> [REDIS_CLEAR] Fila Redis limpa");
     }
 
     public void clearAllMatchmakingData() {
@@ -119,6 +126,5 @@ public class RedisMatchmakingService {
             stringRedisTemplate.delete(sessionKeys);
         }
         
-        System.out.println(">>> [REDIS_CLEAR_ALL] Todos os dados de matchmaking limpos");
     }
 }
