@@ -36,9 +36,10 @@ public class SecurityConfig {
             )
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/auth/**").permitAll()
+                .requestMatchers("/api/public/**").permitAll()
                 .requestMatchers("/h2-console/**").permitAll()
-                .requestMatchers("/ws/**").permitAll() // Permite WebSocket sem JWT (autenticação via interceptor)
-                .requestMatchers("/actuator/health/**").permitAll() // Health check para Docker
+                .requestMatchers("/ws/**").permitAll()
+                .requestMatchers("/actuator/health/**").permitAll()
                 .anyRequest().authenticated()
             )
             .headers(headers -> headers

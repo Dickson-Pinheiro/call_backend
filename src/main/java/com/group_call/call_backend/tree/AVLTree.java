@@ -214,4 +214,50 @@ public abstract class AVLTree<T> {
         }
         return 1 + sizeRec(node.getLeft()) + sizeRec(node.getRight());
     }
+
+    public AVLNode<T> getRoot() {
+        return root;
+    }
+
+    public List<Long> getInOrderKeys() {
+        List<Long> result = new ArrayList<>();
+        inOrderKeysRec(root, result);
+        return result;
+    }
+
+    protected void inOrderKeysRec(AVLNode<T> node, List<Long> result) {
+        if (node != null) {
+            inOrderKeysRec(node.getLeft(), result);
+            result.add(node.getKey());
+            inOrderKeysRec(node.getRight(), result);
+        }
+    }
+
+    public List<Long> getPreOrderKeys() {
+        List<Long> result = new ArrayList<>();
+        preOrderKeysRec(root, result);
+        return result;
+    }
+
+    protected void preOrderKeysRec(AVLNode<T> node, List<Long> result) {
+        if (node != null) {
+            result.add(node.getKey());
+            preOrderKeysRec(node.getLeft(), result);
+            preOrderKeysRec(node.getRight(), result);
+        }
+    }
+
+    public List<Long> getPostOrderKeys() {
+        List<Long> result = new ArrayList<>();
+        postOrderKeysRec(root, result);
+        return result;
+    }
+
+    protected void postOrderKeysRec(AVLNode<T> node, List<Long> result) {
+        if (node != null) {
+            postOrderKeysRec(node.getLeft(), result);
+            postOrderKeysRec(node.getRight(), result);
+            result.add(node.getKey());
+        }
+    }
 }
