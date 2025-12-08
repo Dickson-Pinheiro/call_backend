@@ -119,4 +119,20 @@ public class CallService {
     public void reloadTree() {
         callTree.reload();
     }
+
+    public void syncCallAction(String action, Long callId) {
+        switch (action) {
+            case "ADD":
+                CallEntity call = callRepository.findById(callId).orElse(null);
+                if (call != null) {
+                    callTree.insert(call.getId(), call);
+                }
+                break;
+            case "REMOVE":
+                callTree.removeCall(callId);
+                break;
+            default:
+                throw new IllegalArgumentException("Ação desconhecida: " + action);
+        }
+    }
 }

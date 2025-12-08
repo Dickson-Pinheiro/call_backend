@@ -89,4 +89,20 @@ public class UserService {
     public void reloadTree() {
         userTree.reload();
     }
+
+    public void syncUserAction(String action, Long userId) {
+        switch (action) {
+            case "ADD":
+                UserEntity user = userRepository.findById(userId).orElse(null);
+                if (user != null) {
+                    userTree.insert(user.getId(), user);
+                }
+                break;
+            case "REMOVE":
+                userTree.removeUser(userId);
+                break;
+            default:
+                throw new IllegalArgumentException("Ação desconhecida: " + action);
+        }
+    }
 }

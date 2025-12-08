@@ -107,4 +107,20 @@ public class CallRatingService {
     public void reloadTree() {
         callRatingTree.reload();
     }
+
+    public void syncRatingAction(String action, Long ratingId) {
+        switch (action) {
+            case "ADD":
+                CallRatingEntity rating = callRatingRepository.findById(ratingId).orElse(null);
+                if (rating != null) {
+                    callRatingTree.insert(rating.getId(), rating);
+                }
+                break;
+            case "REMOVE":
+                callRatingTree.removeRating(ratingId);
+                break;
+            default:
+                throw new IllegalArgumentException("Ação desconhecida: " + action);
+        }
+    }
 }

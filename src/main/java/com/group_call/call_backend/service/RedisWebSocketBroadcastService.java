@@ -196,8 +196,6 @@ public class RedisWebSocketBroadcastService {
     
     private void publishToRedis(WebSocketMessage message) {
         try {
-            String currentServerId = getServerIdentifier();
-            
             SimpUser simpUser = simpUserRegistry.getUser(message.getTargetUserId().toString());
             if (simpUser != null && !simpUser.getSessions().isEmpty()) {
                 try {

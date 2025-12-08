@@ -2,8 +2,6 @@ package com.group_call.call_backend.websocket;
 
 import com.group_call.call_backend.security.JwtTokenProvider;
 import com.group_call.call_backend.service.MatchmakingService;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
@@ -17,8 +15,6 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class WebSocketAuthInterceptor implements ChannelInterceptor {
-
-    private static final Logger logger = LoggerFactory.getLogger(WebSocketAuthInterceptor.class);
     
     private final JwtTokenProvider tokenProvider;
     private final MatchmakingService matchmakingService;

@@ -4,16 +4,12 @@ import com.group_call.call_backend.entity.UserEntity;
 import com.group_call.call_backend.repository.UserRepository;
 import com.group_call.call_backend.security.JwtTokenProvider;
 import com.group_call.call_backend.tree.UserTree;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
 @Service
 public class AuthService {
-
-    private static final Logger logger = LoggerFactory.getLogger(AuthService.class);
 
     private final UserTree userTree;
     private final UserRepository userRepository;

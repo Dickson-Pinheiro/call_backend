@@ -30,7 +30,6 @@ public class RedisMatchmakingService {
 
     public void joinQueue(Long userId) {
         redisTemplate.opsForList().rightPush(QUEUE_KEY, userId);
-        Long queueSize = getQueueSize();
     }
 
     public void leaveQueue(Long userId) {

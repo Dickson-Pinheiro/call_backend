@@ -90,4 +90,20 @@ public class ChatMessageService {
     public void reloadTree() {
         chatMessageTree.reload();
     }
+
+    public void syncMessageAction(String action, Long messageId) {
+        switch (action) {
+            case "ADD":
+                ChatMessageEntity message = chatMessageRepository.findById(messageId).orElse(null);
+                if (message != null) {
+                    chatMessageTree.insert(message.getId(), message);
+                }
+                break;
+            case "REMOVE":
+                chatMessageTree.removeMessage(messageId);
+                break;
+            default:
+                throw new IllegalArgumentException("Ação desconhecida: " + action);
+        }
+    }
 }
