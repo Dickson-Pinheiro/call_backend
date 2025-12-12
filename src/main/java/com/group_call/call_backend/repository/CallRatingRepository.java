@@ -14,7 +14,9 @@ import java.util.Optional;
 @Repository
 public interface CallRatingRepository extends JpaRepository<CallRatingEntity, Long> {
 
-    Optional<CallRatingEntity> findByCall(CallEntity call);
+    List<CallRatingEntity> findByCall(CallEntity call);
+
+    boolean existsByCallAndRater(CallEntity call, UserEntity rater);
 
     List<CallRatingEntity> findByRater(UserEntity rater);
 
@@ -32,7 +34,7 @@ public interface CallRatingRepository extends JpaRepository<CallRatingEntity, Lo
     Optional<CallRatingEntity> findByIdWithDetails(@Param("id") Long id);
 
     @Query("SELECT cr FROM CallRatingEntity cr JOIN FETCH cr.rater JOIN FETCH cr.call c JOIN FETCH c.user1 JOIN FETCH c.user2 WHERE cr.call = :call")
-    Optional<CallRatingEntity> findByCallWithDetails(@Param("call") CallEntity call);
+    List<CallRatingEntity> findByCallWithDetails(@Param("call") CallEntity call);
 
     @Query("SELECT cr FROM CallRatingEntity cr JOIN FETCH cr.rater JOIN FETCH cr.call c JOIN FETCH c.user1 JOIN FETCH c.user2 WHERE cr.rater = :rater")
     List<CallRatingEntity> findByRaterWithDetails(@Param("rater") UserEntity rater);

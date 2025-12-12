@@ -4,7 +4,6 @@ import com.group_call.call_backend.entity.CallEntity;
 import com.group_call.call_backend.entity.ChatMessageEntity;
 import com.group_call.call_backend.entity.UserEntity;
 import com.group_call.call_backend.repository.ChatMessageRepository;
-import com.group_call.call_backend.tree.ChatMessageTree;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -12,14 +11,12 @@ import java.util.List;
 @Service
 public class ChatMessageService {
 
-    private final ChatMessageTree chatMessageTree;
     private final ChatMessageRepository chatMessageRepository;
     private final CallService callService;
     private final UserService userService;
 
-    public ChatMessageService(ChatMessageTree chatMessageTree, ChatMessageRepository chatMessageRepository,
-                            CallService callService, UserService userService) {
-        this.chatMessageTree = chatMessageTree;
+    public ChatMessageService(ChatMessageRepository chatMessageRepository,
+            CallService callService, UserService userService) {
         this.chatMessageRepository = chatMessageRepository;
         this.callService = callService;
         this.userService = userService;
@@ -42,68 +39,42 @@ public class ChatMessageService {
         message.setSender(sender);
         message.setMessageText(messageText);
 
-        return chatMessageTree.addMessage(message);
+        return chatMessageRepository.save(message);
     }
 
     public ChatMessageEntity findById(Long id) {
-        ChatMessageEntity message = chatMessageTree.findById(id);
-        if (message == null) {
-            message = chatMessageRepository.findById(id).orElse(null);
-        }
-        if (message == null) {
-            throw new IllegalArgumentException("Mensagem não encontrada com ID: " + id);
-        }
-        return message;
+        return chatMessageRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Mensagem não encontrada com ID: " + id));
     }
 
     public List<ChatMessageEntity> getAllMessages() {
-        return chatMessageTree.getAllMessagesSorted();
+        return chatMessageRepository.findAll();
     }
 
     public List<ChatMessageEntity> findByCallId(Long callId) {
         callService.findById(callId);
-        return chatMessageTree.findByCallId(callId);
+        return chatMessageRepository.findByCallIdOrderBySentAtAsc(callId);
     }
 
     public ChatMessageEntity updateMessage(Long messageId, String newText) {
         ChatMessageEntity message = findById(messageId);
         message.setMessageText(newText);
-        return chatMessageTree.updateMessage(message);
+        return chatMessageRepository.save(message);
     }
 
     public void deleteMessage(Long messageId) {
-        findById(messageId);
-        chatMessageTree.removeMessage(messageId);
+        if (!chatMessageRepository.existsById(messageId)) {
+            throw new IllegalArgumentException("Mensagem não encontrada com ID: " + messageId);
+        }
+        chatMessageRepository.deleteById(messageId);
     }
 
     public void deleteMessagesByCallId(Long callId) {
         List<ChatMessageEntity> messages = findByCallId(callId);
-        for (ChatMessageEntity message : messages) {
-            chatMessageTree.removeMessage(message.getId());
-        }
+        chatMessageRepository.deleteAll(messages);
     }
 
     public long countMessagesByCallId(Long callId) {
         return findByCallId(callId).size();
-    }
-
-    public void reloadTree() {
-        chatMessageTree.reload();
-    }
-
-    public void syncMessageAction(String action, Long messageId) {
-        switch (action) {
-            case "ADD":
-                ChatMessageEntity message = chatMessageRepository.findById(messageId).orElse(null);
-                if (message != null) {
-                    chatMessageTree.insert(message.getId(), message);
-                }
-                break;
-            case "REMOVE":
-                chatMessageTree.removeMessage(messageId);
-                break;
-            default:
-                throw new IllegalArgumentException("Ação desconhecida: " + action);
-        }
     }
 }

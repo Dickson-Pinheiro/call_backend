@@ -2,7 +2,6 @@ package com.group_call.call_backend.service;
 
 import com.group_call.call_backend.entity.UserEntity;
 import com.group_call.call_backend.repository.UserRepository;
-import com.group_call.call_backend.tree.UserTree;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -10,99 +9,70 @@ import java.util.List;
 @Service
 public class UserService {
 
-    private final UserTree userTree;
     private final UserRepository userRepository;
 
-    public UserService(UserTree userTree, UserRepository userRepository) {
-        this.userTree = userTree;
+    public UserService(UserRepository userRepository) {
         this.userRepository = userRepository;
     }
 
     public UserEntity createUser(UserEntity user) {
-        if (userTree.findByEmail(user.getEmail()) != null) {
+        if (userRepository.findByEmail(user.getEmail()).isPresent()) {
             throw new IllegalArgumentException("Email já cadastrado: " + user.getEmail());
         }
-        return userTree.addUser(user);
+        return userRepository.save(user);
     }
 
     public UserEntity findById(Long id) {
-        UserEntity user = userTree.findById(id);
-        if (user == null) {
-            user = userRepository.findById(id).orElse(null);
-        }
-        if (user == null) {
-            throw new IllegalArgumentException("Usuário não encontrado com ID: " + id);
-        }
-        return user;
+        return userRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Usuário não encontrado com ID: " + id));
     }
 
     public UserEntity findByEmail(String email) {
-        UserEntity user = userTree.findByEmail(email);
-        if (user == null) {
-            user = userRepository.findByEmail(email).orElse(null);
-        }
-        if (user == null) {
-            throw new IllegalArgumentException("Usuário não encontrado com email: " + email);
-        }
-        return user;
+        return userRepository.findByEmail(email)
+                .orElseThrow(() -> new IllegalArgumentException("Usuário não encontrado com email: " + email));
     }
 
     public List<UserEntity> getAllUsers() {
-        return userTree.getAllUsersSorted();
+        return userRepository.findAll();
     }
 
     public UserEntity updateUser(Long id, UserEntity updatedUser) {
         UserEntity existingUser = findById(id);
-        
-        if (!existingUser.getEmail().equals(updatedUser.getEmail())) {
-            UserEntity userWithEmail = userTree.findByEmail(updatedUser.getEmail());
-            if (userWithEmail != null && !userWithEmail.getId().equals(id)) {
+
+        if (updatedUser.getEmail() != null && !existingUser.getEmail().equals(updatedUser.getEmail())) {
+            if (userRepository.findByEmail(updatedUser.getEmail()).isPresent()) {
                 throw new IllegalArgumentException("Email já cadastrado: " + updatedUser.getEmail());
             }
         }
 
+        // Maintain other fields if needed, but assuming updatedUser has all fields or
+        // we merge
+        // For now, following logic of previous implementation which set ID and called
+        // update
         updatedUser.setId(id);
-        return userTree.updateUser(updatedUser);
+        return userRepository.save(updatedUser);
     }
 
     public UserEntity updateOnlineStatus(Long id, boolean isOnline) {
         UserEntity user = findById(id);
         user.setIsOnline(isOnline);
-        return userTree.updateUser(user);
+        return userRepository.save(user);
     }
 
     public UserEntity updateActiveStatus(Long id, boolean isActive) {
         UserEntity user = findById(id);
         user.setIsActive(isActive);
-        return userTree.updateUser(user);
+        return userRepository.save(user);
     }
 
     public void deleteUser(Long id) {
-        findById(id);
-        userTree.removeUser(id);
+        if (!userRepository.existsById(id)) {
+            throw new IllegalArgumentException("Usuário não encontrado com ID: " + id);
+        }
+        userRepository.deleteById(id);
     }
 
     public boolean emailExists(String email) {
-        return userTree.findByEmail(email) != null;
-    }
-
-    public void reloadTree() {
-        userTree.reload();
-    }
-
-    public void syncUserAction(String action, Long userId) {
-        switch (action) {
-            case "ADD":
-                UserEntity user = userRepository.findById(userId).orElse(null);
-                if (user != null) {
-                    userTree.insert(user.getId(), user);
-                }
-                break;
-            case "REMOVE":
-                userTree.removeUser(userId);
-                break;
-            default:
-                throw new IllegalArgumentException("Ação desconhecida: " + action);
-        }
+        return userRepository.findByEmail(email).isPresent();
     }
 }

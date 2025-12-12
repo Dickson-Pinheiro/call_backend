@@ -1,16 +1,13 @@
 package com.group_call.call_backend.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.group_call.call_backend.service.RedisFollowSyncListener;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
 import org.springframework.data.redis.connection.jedis.JedisConnectionFactory;
 import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.data.redis.listener.ChannelTopic;
 import org.springframework.data.redis.listener.RedisMessageListenerContainer;
 import org.springframework.data.redis.serializer.GenericToStringSerializer;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
@@ -26,11 +23,10 @@ public class RedisConfig {
     @Bean
     public JedisConnectionFactory jedisConnectionFactory() {
         URI uri = URI.create(redisUrl);
-        
+
         RedisStandaloneConfiguration config = new RedisStandaloneConfiguration();
         config.setHostName(uri.getHost());
         config.setPort(uri.getPort());
-        
 
         String userInfo = uri.getUserInfo();
         if (userInfo != null && userInfo.contains(":")) {
@@ -62,14 +58,12 @@ public class RedisConfig {
         template.setHashValueSerializer(new StringRedisSerializer());
         return template;
     }
-    
+
     @Bean
     public RedisMessageListenerContainer redisMessageListenerContainer(
-            RedisConnectionFactory connectionFactory,
-            @Lazy RedisFollowSyncListener followSyncListener) {
+            RedisConnectionFactory connectionFactory) {
         RedisMessageListenerContainer container = new RedisMessageListenerContainer();
         container.setConnectionFactory(connectionFactory);
-        container.addMessageListener(followSyncListener, new ChannelTopic("follow:sync"));
         return container;
     }
 

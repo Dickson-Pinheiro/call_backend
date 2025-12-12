@@ -12,7 +12,9 @@ import org.hibernate.annotations.CreationTimestamp;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "call_ratings")
+@Table(name = "call_ratings", uniqueConstraints = {
+        @UniqueConstraint(columnNames = { "call_id", "rater_id" })
+})
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -23,8 +25,8 @@ public class CallRatingEntity {
     private Long id;
 
     @NotNull(message = "Chamada é obrigatória")
-    @OneToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "call_id", nullable = false, unique = true)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "call_id", nullable = false)
     private CallEntity call;
 
     @NotNull(message = "Avaliador é obrigatório")

@@ -2,9 +2,8 @@ package com.group_call.call_backend.service;
 
 import com.group_call.call_backend.entity.CallEntity;
 import com.group_call.call_backend.entity.UserEntity;
+import com.group_call.call_backend.repository.CallRepository;
 import com.group_call.call_backend.repository.UserRepository;
-import com.group_call.call_backend.tree.CallTree;
-import com.group_call.call_backend.tree.UserTree;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,25 +18,23 @@ public class MatchmakingService {
 
     private static final Logger logger = LoggerFactory.getLogger(MatchmakingService.class);
 
-    private final UserTree userTree;
     private final UserRepository userRepository;
-    private final CallTree callTree;
+    private final CallRepository callRepository;
     private final RedisMatchmakingService redisMatchmaking;
     private final RedisWebSocketBroadcastService redisBroadcast;
 
     private final Object matchLock = new Object();
 
     @Autowired
-    public MatchmakingService(UserTree userTree, UserRepository userRepository, CallTree callTree, 
-                             RedisMatchmakingService redisMatchmaking,
-                             RedisWebSocketBroadcastService redisBroadcast) {
-        this.userTree = userTree;
+    public MatchmakingService(UserRepository userRepository, CallRepository callRepository,
+            RedisMatchmakingService redisMatchmaking,
+            RedisWebSocketBroadcastService redisBroadcast) {
         this.userRepository = userRepository;
-        this.callTree = callTree;
+        this.callRepository = callRepository;
         this.redisMatchmaking = redisMatchmaking;
         this.redisBroadcast = redisBroadcast;
     }
-    
+
     public void registerSession(Long userId, String sessionId) {
         redisMatchmaking.saveUserSession(userId, sessionId);
     }
@@ -50,12 +47,12 @@ public class MatchmakingService {
     public void joinQueue(Long userId) {
         if (redisMatchmaking.isUserInCall(userId)) {
             boolean hasActiveCall = hasActiveCallInDatabase(userId);
-            
+
             if (hasActiveCall) {
                 throw new IllegalStateException("Usuário já está em uma chamada");
             } else {
                 redisMatchmaking.removeUserFromCall(userId);
-                
+
                 Optional<Long> partnerIdOpt = redisMatchmaking.getPartnerUserId(userId);
                 if (partnerIdOpt.isPresent()) {
                     redisMatchmaking.removeUserFromCall(partnerIdOpt.get());
@@ -66,10 +63,12 @@ public class MatchmakingService {
         redisMatchmaking.joinQueue(userId);
         tryMatch();
     }
-    
+
     private boolean hasActiveCallInDatabase(Long userId) {
         try {
-            java.util.List<CallEntity> activeCalls = callTree.findByStatus(CallEntity.CallStatus.ACTIVE);
+            // Ideally should be a custom query in repository:
+            // findByStatusAndUser1IdOrUser2Id
+            java.util.List<CallEntity> activeCalls = callRepository.findByStatus(CallEntity.CallStatus.ACTIVE);
             for (CallEntity call : activeCalls) {
                 if (call.getUser1().getId().equals(userId) || call.getUser2().getId().equals(userId)) {
                     return true;
@@ -81,11 +80,11 @@ public class MatchmakingService {
             return false;
         }
     }
-    
+
     public void leaveQueue(Long userId) {
         redisMatchmaking.leaveQueue(userId);
     }
-    
+
     public void cleanupUserOnDisconnect(Long userId) {
         try {
             redisMatchmaking.leaveQueue(userId);
@@ -96,126 +95,123 @@ public class MatchmakingService {
             if (user != null) {
                 user.setIsOnline(false);
                 userRepository.save(user);
-                userTree.updateUser(user);
             }
         } catch (Exception e) {
             logger.error("Erro ao limpar estado do usuário userId={}", userId, e);
         }
     }
-    
+
     private void endActiveCallForUser(Long userId) {
         try {
             UserEntity user = userRepository.findById(userId).orElse(null);
             if (user == null) {
                 return;
             }
-            
-            java.util.List<CallEntity> activeCalls = callTree.findByStatus(CallEntity.CallStatus.ACTIVE);
+
+            java.util.List<CallEntity> activeCalls = callRepository.findByStatus(CallEntity.CallStatus.ACTIVE);
             CallEntity activeCall = null;
-            
+
             for (CallEntity call : activeCalls) {
                 if (call.getUser1().getId().equals(userId) || call.getUser2().getId().equals(userId)) {
                     activeCall = call;
                     break;
                 }
             }
-            
+
             if (activeCall == null) {
                 return;
             }
-            
-            Long partnerId = activeCall.getUser1().getId().equals(userId) 
-                ? activeCall.getUser2().getId() 
-                : activeCall.getUser1().getId();
-            
+
+            Long partnerId = activeCall.getUser1().getId().equals(userId)
+                    ? activeCall.getUser2().getId()
+                    : activeCall.getUser1().getId();
+
             activeCall.setStatus(CallEntity.CallStatus.COMPLETED);
             activeCall.setEndedAt(LocalDateTime.now());
-            
+
             if (activeCall.getStartedAt() != null) {
-                long duration = java.time.Duration.between(activeCall.getStartedAt(), activeCall.getEndedAt()).getSeconds();
+                long duration = java.time.Duration.between(activeCall.getStartedAt(), activeCall.getEndedAt())
+                        .getSeconds();
                 activeCall.setDurationSeconds((int) duration);
             }
-            
-            callTree.updateCall(activeCall);
-            
+
+            callRepository.save(activeCall);
+
             redisMatchmaking.removeUserFromCall(userId);
             redisMatchmaking.removeUserFromCall(partnerId);
-            
+
             Map<String, Object> notification = Map.of(
-                "callId", activeCall.getId(),
-                "reason", "partner_disconnected",
-                "partnerId", userId
-            );
-            
+                    "callId", activeCall.getId(),
+                    "reason", "partner_disconnected",
+                    "partnerId", userId);
+
             sendCallEnded(partnerId, notification);
         } catch (Exception e) {
             logger.error("Erro ao encerrar chamada ativa para userId={}", userId, e);
         }
     }
-    
+
     public void nextPerson(Long userId) {
         try {
             Optional<Long> partnerIdOpt = redisMatchmaking.getPartnerUserId(userId);
-            
+
             if (partnerIdOpt.isPresent()) {
                 Long partnerId = partnerIdOpt.get();
-                
+
                 redisMatchmaking.removeUserFromCall(userId);
                 redisMatchmaking.removeUserFromCall(partnerId);
-                
+
                 Map<String, Object> notification = Map.of(
-                    "reason", "partner_next_person",
-                    "partnerId", userId
-                );
+                        "reason", "partner_next_person",
+                        "partnerId", userId);
                 sendCallEnded(partnerId, notification);
             }
-            
+
             joinQueue(userId);
         } catch (Exception e) {
             logger.error("Erro ao processar próxima pessoa para userId={}", userId, e);
             throw e;
         }
     }
-    
+
     public void endCall(Long callId, Long userId) {
-        CallEntity call = callTree.findById(callId);
+        CallEntity call = callRepository.findById(callId).orElse(null);
         if (call == null) {
             return;
         }
-        
+
         call.setStatus(CallEntity.CallStatus.COMPLETED);
         call.setEndedAt(LocalDateTime.now());
-        
+
         if (call.getStartedAt() != null) {
             long duration = java.time.Duration.between(call.getStartedAt(), call.getEndedAt()).getSeconds();
             call.setDurationSeconds((int) duration);
         }
 
-        callTree.updateCall(call);
-        
+        callRepository.save(call);
+
         Long user1Id = call.getUser1().getId();
         Long user2Id = call.getUser2().getId();
-        
+
         redisMatchmaking.removeUserFromCall(user1Id);
         redisMatchmaking.removeUserFromCall(user2Id);
-        
+
         updateUserStatusAfterCall(user1Id);
         updateUserStatusAfterCall(user2Id);
 
         Map<String, Object> notification = Map.of(
-            "callId", callId,
-            "reason", "call_ended"
-        );
-        
+                "callId", callId,
+                "reason", "call_ended");
+
         sendCallEnded(user1Id, notification);
         sendCallEnded(user2Id, notification);
     }
-    
+
     private void updateUserStatusAfterCall(Long userId) {
         try {
             UserEntity user = userRepository.findById(userId).orElse(null);
             if (user != null) {
-                userTree.updateUser(user);
+                userRepository.save(user);
             }
         } catch (Exception e) {
             logger.error("Erro ao atualizar usuário userId={}", userId, e);
@@ -225,13 +221,13 @@ public class MatchmakingService {
     private void tryMatch() {
         synchronized (matchLock) {
             Long queueSize = redisMatchmaking.getQueueSize();
-            
+
             if (queueSize < 2) {
                 return;
             }
 
             Optional<Long[]> matchResult = redisMatchmaking.tryMatch();
-            
+
             if (matchResult.isEmpty()) {
                 return;
             }
@@ -250,8 +246,10 @@ public class MatchmakingService {
             Optional<UserEntity> user2Opt = userRepository.findById(user2Id);
 
             if (user1Opt.isEmpty() || user2Opt.isEmpty()) {
-                if (user1Opt.isPresent()) redisMatchmaking.joinQueue(user1Id);
-                if (user2Opt.isPresent()) redisMatchmaking.joinQueue(user2Id);
+                if (user1Opt.isPresent())
+                    redisMatchmaking.joinQueue(user1Id);
+                if (user2Opt.isPresent())
+                    redisMatchmaking.joinQueue(user2Id);
                 return;
             }
 
@@ -265,23 +263,21 @@ public class MatchmakingService {
             call.setCallType(CallEntity.CallType.VIDEO);
             call.setStatus(CallEntity.CallStatus.ACTIVE);
 
-            call = callTree.addCall(call);
+            call = callRepository.save(call);
 
             redisMatchmaking.setUserInCall(user1Id, user2Id);
             redisMatchmaking.setUserInCall(user2Id, user1Id);
 
             Map<String, Object> matchData = Map.of(
-                "callId", call.getId(),
-                "peerId", user2Id,
-                "peerName", user2.getName()
-            );
+                    "callId", call.getId(),
+                    "peerId", user2Id,
+                    "peerName", user2.getName());
             sendMatchFound(user1Id, matchData);
 
             matchData = Map.of(
-                "callId", call.getId(),
-                "peerId", user1Id,
-                "peerName", user1.getName()
-            );
+                    "callId", call.getId(),
+                    "peerId", user1Id,
+                    "peerName", user1.getName());
             sendMatchFound(user2Id, matchData);
         }
     }
@@ -289,7 +285,7 @@ public class MatchmakingService {
     private void sendMatchFound(Long userId, Map<String, Object> matchData) {
         redisBroadcast.broadcastMatchFound(userId, matchData);
     }
-    
+
     private void sendCallEnded(Long userId, Map<String, Object> endData) {
         redisBroadcast.broadcastCallEnded(userId, endData);
     }
@@ -304,11 +300,11 @@ public class MatchmakingService {
     public boolean isInCall(Long userId) {
         return redisMatchmaking.isUserInCall(userId);
     }
-    
+
     public void forceCleanupCallState(Long userId) {
         try {
             redisMatchmaking.removeUserFromCall(userId);
-            
+
             Optional<Long> partnerIdOpt = redisMatchmaking.getPartnerUserId(userId);
             if (partnerIdOpt.isPresent()) {
                 Long partnerId = partnerIdOpt.get();

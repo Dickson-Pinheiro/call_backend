@@ -4,23 +4,19 @@ import com.group_call.call_backend.entity.CallEntity;
 import com.group_call.call_backend.entity.CallRatingEntity;
 import com.group_call.call_backend.entity.UserEntity;
 import com.group_call.call_backend.repository.CallRatingRepository;
-import com.group_call.call_backend.tree.CallRatingTree;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
 
-
 @Service
 public class CallRatingService {
 
-    private final CallRatingTree callRatingTree;
     private final CallRatingRepository callRatingRepository;
     private final CallService callService;
     private final UserService userService;
 
-    public CallRatingService(CallRatingTree callRatingTree, CallRatingRepository callRatingRepository,
-                           CallService callService, UserService userService) {
-        this.callRatingTree = callRatingTree;
+    public CallRatingService(CallRatingRepository callRatingRepository,
+            CallService callService, UserService userService) {
         this.callRatingRepository = callRatingRepository;
         this.callService = callService;
         this.userService = userService;
@@ -42,58 +38,57 @@ public class CallRatingService {
             throw new IllegalArgumentException("Avaliação deve ser entre 1 e 5");
         }
 
+        if (callRatingRepository.existsByCallAndRater(call, rater)) {
+            throw new IllegalStateException("Você já avaliou esta chamada");
+        }
+
         CallRatingEntity callRating = new CallRatingEntity();
         callRating.setCall(call);
         callRating.setRater(rater);
         callRating.setRating(rating);
         callRating.setComment(comment);
 
-        return callRatingTree.addRating(callRating);
+        return callRatingRepository.save(callRating);
     }
 
     public CallRatingEntity findById(Long id) {
-        CallRatingEntity rating = callRatingTree.findById(id);
-        if (rating == null) {
-            // Fallback: tenta buscar no repository
-            rating = callRatingRepository.findById(id).orElse(null);
-        }
-        if (rating == null) {
-            throw new IllegalArgumentException("Avaliação não encontrada com ID: " + id);
-        }
-        return rating;
+        return callRatingRepository.findByIdWithDetails(id)
+                .orElseThrow(() -> new IllegalArgumentException("Avaliação não encontrada com ID: " + id));
     }
 
     public List<CallRatingEntity> getAllRatings() {
-        return callRatingTree.getAllRatingsSorted();
+        return callRatingRepository.findAllWithDetails();
     }
 
     public List<CallRatingEntity> findByRatingGreaterThanEqual(Integer rating) {
         if (rating < 1 || rating > 5) {
             throw new IllegalArgumentException("Rating deve ser entre 1 e 5");
         }
-        return callRatingTree.findByRatingGreaterThanEqual(rating);
+        return callRatingRepository.findByRatingGreaterThanEqual(rating);
     }
 
     public CallRatingEntity updateRating(Long ratingId, Integer newRating, String newComment) {
         CallRatingEntity rating = findById(ratingId);
-        
+
         if (newRating != null) {
             if (newRating < 1 || newRating > 5) {
                 throw new IllegalArgumentException("Avaliação deve ser entre 1 e 5");
             }
             rating.setRating(newRating);
         }
-        
+
         if (newComment != null) {
             rating.setComment(newComment);
         }
 
-        return callRatingTree.updateRating(rating);
+        return callRatingRepository.save(rating);
     }
 
     public void deleteRating(Long ratingId) {
-        findById(ratingId); // Valida se existe
-        callRatingTree.removeRating(ratingId);
+        if (!callRatingRepository.existsById(ratingId)) {
+            throw new IllegalArgumentException("Avaliação não encontrada com ID: " + ratingId);
+        }
+        callRatingRepository.deleteById(ratingId);
     }
 
     public List<CallRatingEntity> findTopRatings() {
@@ -102,25 +97,5 @@ public class CallRatingService {
 
     public List<CallRatingEntity> findPositiveRatings() {
         return findByRatingGreaterThanEqual(4);
-    }
-
-    public void reloadTree() {
-        callRatingTree.reload();
-    }
-
-    public void syncRatingAction(String action, Long ratingId) {
-        switch (action) {
-            case "ADD":
-                CallRatingEntity rating = callRatingRepository.findById(ratingId).orElse(null);
-                if (rating != null) {
-                    callRatingTree.insert(rating.getId(), rating);
-                }
-                break;
-            case "REMOVE":
-                callRatingTree.removeRating(ratingId);
-                break;
-            default:
-                throw new IllegalArgumentException("Ação desconhecida: " + action);
-        }
     }
 }
